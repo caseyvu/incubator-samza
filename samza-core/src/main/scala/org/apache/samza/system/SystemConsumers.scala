@@ -198,19 +198,9 @@ class SystemConsumers(
 
       // Poll every system for new messages.
       val receivedNewMessages = consumers.keys.map(poll(_)).contains(true)
-
-      // Update the chooser.
-      neededByChooser.foreach(systemStreamPartition =>
-        // If we have messages for a stream that the chooser needs, then update.
-        if (fetchMap(systemStreamPartition).intValue < maxMsgsPerStreamPartition) {
-          chooser.update(unprocessedMessages(systemStreamPartition).dequeue)
-          updateFetchMap(systemStreamPartition)
-          neededByChooser -= systemStreamPartition
-        })
-        
       receivedNewMessages
     }
-  }
+  } 
 
   def choose: IncomingMessageEnvelope = {
     val envelopeFromChooser = chooser.choose
@@ -237,6 +227,10 @@ class SystemConsumers(
     }
 
     refresh.maybeCall()
+    
+    // Update the chooser.
+    updateMessageChooser()
+    
     envelopeFromChooser
   }
   
@@ -290,7 +284,7 @@ class SystemConsumers(
    * systemFetchMapCache stays in sync with fetchMap.
    */
   private def updateFetchMap(systemStreamPartition: SystemStreamPartition, amount: Int = 1) {
-    val fetchSize = fetchMap.getOrElse(systemStreamPartition, new Integer(0)).intValue + amount
+    val fetchSize = fetchMap.getOrElse(systemStreamPartition, java.lang.Integer.valueOf(0)).intValue + amount
     val systemName = systemStreamPartition.getSystem
     var systemFetchMap = systemFetchMapCache.getOrElse(systemName, Map())
 
@@ -302,5 +296,20 @@ class SystemConsumers(
 
     fetchMap += systemStreamPartition -> fetchSize
     systemFetchMapCache += systemName -> systemFetchMap
+  }
+  
+  /**
+   * A helper method that updates MessageChooser.
+   * This should be called in "choose" method after we try to consume
+   * a message from MessageChooser
+   */
+  private def updateMessageChooser() {
+    neededByChooser.foreach(systemStreamPartition =>
+      // If we have messages for a stream that the chooser needs, then update.
+      if (fetchMap(systemStreamPartition).intValue < maxMsgsPerStreamPartition) {
+        chooser.update(unprocessedMessages(systemStreamPartition).dequeue)
+        updateFetchMap(systemStreamPartition)
+        neededByChooser -= systemStreamPartition
+      })
   }
 }
